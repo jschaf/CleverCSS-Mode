@@ -2,12 +2,12 @@
 
 bgcolor = #f0f0e4
 
-ul#comments, ol#comments:       // joe
+ul#comments, ol#comments:
    background-color: $bgcolor
 
-   li:
-      background-color: $bgcolor
-      font-size: 1.2em
+li:
+   background-color: $bgcolor
+   font-size: 1.2em
 
 foo = 1px
 body:
@@ -31,7 +31,12 @@ ul, ol:
 strong, em:
     a &, #&:
       bar
-      
+    a:
+       &:hover:
+          color: red
+       &:visited:
+          blah: blue
+       
 #main p:
    font->
       family: Verdana, sans-serif
