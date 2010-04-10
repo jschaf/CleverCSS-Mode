@@ -11,6 +11,7 @@ Installation
 
 - Put `clevercss.el` somewhere in your emacs load path.
 - Add these lines to your .emacs file:
+
        (autoload 'clevercss-mode "clevercss nil t)
        (add-to-list auto-mode-alist '("\\.pcss\\'" . clevercss-mode))
  
