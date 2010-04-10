@@ -13,6 +13,7 @@ Installation
 - Add these lines to your .emacs file:
 
     (autoload 'clevercss-mode "clevercss nil t)
+    
     (add-to-list auto-mode-alist '("\\.pcss\\'" . clevercss-mode))
  
 This mode assumes that CleverCSS files have the suffix `.pcss`.  You
