@@ -12,7 +12,7 @@
 ;;; Commentary:
 
 ;; This is a major mode for editing CleverCSS files.  Much of the
-;; functionality imitates that of `clevercss-mode'. `clevercss-mode'
+;; functionality imitates that of `clevercss-mode'.  `clevercss-mode'
 ;; provides support for imenu and hideshow.
 
 ;;; Installation:
@@ -34,13 +34,9 @@
 ;; Apr 2010 - Created
 
 ;;; Todo:
-
-;; Fix indentation dealing with already correct indents.
-;; guess-indent
-;; font-lock #
-;; make sure font lock open blocks covers all css selectors
-;; fix comments comment-start is messed up
-;; Add indent open-block support for "font->"
+;; Fix font-lock for opening block css selectors.  It's a hack.
+;; Add imenu support (wishlist)
+;; Add compilation support
 
 ;;; Code:
 
@@ -85,13 +81,13 @@
     (,(rx symbol-start (group ?$ (1+ (or ?_ alnum))))
      (1 font-lock-variable-name-face))
 
-    ;; Opening blocks (e.g. body, div:\n)
-    (,(rx symbol-start (group (+? (or alnum ?_ space (any "&#.>,"))))
+    ;; Opening blocks (e.g. body, div: ...)
+    (,(rx (group (+? (or alnum ?_ space (any "&#.>,*+\"~=|[]\""))))
           ":" (0+ space) (? "//" (0+ not-newline)) line-end)
      (1 font-lock-type-face))
 
     ;; Unnamed numerical constants
-    (,(rx not-wordchar (group (? "-") (1+ (or ?. num)) 
+    (,(rx not-wordchar (group (? "-") (1+ (or ?. num))
                               (? (or "px" "em" ?% "pt" "ex" "in"
                                      "cm" "pc" "mm"))
                               word-end))
@@ -113,11 +109,10 @@
     (define-key map "\C-c\C-n" 'clevercss-next-statement)
     (define-key map "\C-c\C-p" 'clevercss-previous-statement)
     (define-key map "\C-c\C-u" 'clevercss-beginning-of-block)
-    (define-key map "\C-c\C-c" 'clevercss-compile-and-run)
     
-    (easy-menu-define clevercss-menu map "Clevercss Mode menu"
-      `("Clevercss"
-	:help "Clevercss-specific Features"
+    (easy-menu-define clevercss-menu map "CleverCSS Mode menu"
+      `("CleverCSS"
+	:help "CleverCSS-specific Features"
 	["Shift region left" clevercss-shift-left :active mark-active
 	 :help "Shift by a single indentation step"]
 	["Shift region right" clevercss-shift-right :active mark-active
@@ -135,12 +130,7 @@
 	["Start of def/class" beginning-of-defun
 	 :help "Go to start of innermost definition around point"]
 	["End of def/class" end-of-defun
-	 :help "Go to end of innermost definition around point"]
-	"-"
-	("Templates..."
-	 :help "Expand templates for compound statements"
-	 :filter (lambda (&rest junk)
-                   (abbrev-table-menu clevercss-mode-abbrev-table)))))
+	 :help "Go to end of innermost definition around point"]))
     map))
 
 (defvar clevercss-mode-syntax-table
@@ -163,18 +153,16 @@
     (modify-syntax-entry ?\n "> b" table)
     table))
 
-;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.pcss\\'" . clevercss-mode))
+;;;###autoload (add-to-list 'auto-mode-alist '("\\.pcss\\'" . clevercss-mode))
 
-;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.ccss\\'" . clevercss-mode))
+;;;###autoload (add-to-list 'auto-mode-alist '("\\.ccss\\'" . clevercss-mode))
 
 
 
 ;;;; Utility stuff
 
 (defsubst clevercss-in-string/comment ()
-  "Return non-nil if point is in a Clevercss literal (a comment or string)."
+  "Return non-nil if point is in a CleverCSS literal (a comment or string)."
   ;; We don't need to save the match data.
   (nth 8 (syntax-ppss)))
 
@@ -216,7 +204,7 @@ BOS non-nil means point is known to be at beginning of statement."
     (unless bos (clevercss-beginning-of-statement))
     (end-of-line)
     (clevercss-skip-comments/blanks t)
-    (looking-back (rx ":"))))
+    (looking-back (rx (or "->" ":")))))
 
 
 ;;;; Indentation
@@ -265,10 +253,10 @@ are always indented in lines with preceding comments."
   :group 'clevercss)
 
 (defcustom clevercss-guess-indent t
-  "Non-nil means Clevercss mode guesses `clevercss-indent' for the buffer."
+  "Non-nil means CleverCSS mode guesses `clevercss-indent' for the buffer."
   :type 'boolean
   :group 'clevercss)
-v
+
 ;; Alist of possible indentations and start of statement they would
 ;; close.  Used in indentation cycling (below).
 (defvar clevercss-indent-list nil
@@ -397,12 +385,6 @@ Otherwise return non-nil."
 	    (not (goto-char point))	; return nil
 	  ;; Look upwards for less indented statement.
 	  (if (catch 'done
-;;; This is slower than the below.
-;;; 	  (while (zerop (clevercss-previous-statement))
-;;; 	    (when (and (< (current-indentation) ci)
-;;; 		       (clevercss-open-block-statement-p t))
-;;; 	      (beginning-of-line)
-;;; 	      (throw 'done t)))
 		(while (and (zerop (forward-line -1)))
 		  (when (and (< (current-indentation) ci)
 			     (not (clevercss-comment-line-p))
@@ -461,8 +443,7 @@ don't move and return nil.  Otherwise return t."
 			(point)))))
 
 (defun clevercss-block-end-p ()
-  "Non-nil if this is a line in a statement closing a block,
-or a blank line indented to where it would close a block."
+  "Non-nil if this statement or indented blank line closes a block."
   (and (not (clevercss-comment-line-p))
        (< (current-indentation)
           (save-excursion
@@ -481,10 +462,10 @@ Uses `clevercss-beginning-of-block', `clevercss-end-of-block'."
 
 (defun clevercss-shift-left (start end &optional count)
   "Shift lines in region COUNT (the prefix arg) columns to the left.
-COUNT defaults to `clevercss-indent'.  If region isn't active, just shift
-current line.  The region shifted includes the lines in which START and
-END lie.  It is an error if any lines in the region are indented less than
-COUNT columns."
+If region isn't active, just shift current line.  The region
+shifted includes the lines in which START and END lie.  It is an
+error if any lines in the region are indented less than COUNT
+columns."
   (interactive
    (if mark-active
        (list (region-beginning) (region-end) current-prefix-arg)
@@ -546,7 +527,7 @@ corresponding block opening (or nil)."
        ;; Fixme: Maybe have a case here which indents (only) first
        ;; line after a lambda.
        (t
-	(progn 
+	(progn
 	  (clevercss-previous-statement)
           (push (cons (current-indentation) (clevercss-initial-text))
                 levels)
@@ -579,7 +560,7 @@ indentation if it is valid, i.e. one of the positions returned by
 	  (goto-char (- (point-max) pos))))))
 
 (defun clevercss-indent-line ()
-  "Indent current line as Clevercss code.
+  "Indent current line as CleverCSS code.
 When invoked via `indent-for-tab-command', cycle through possible
 indentations for current line.  The cycle is broken by a command
 different from `indent-for-tab-command', i.e. successive TABs do
@@ -603,7 +584,7 @@ the cycling."
     (setq clevercss-indent-index (1- clevercss-indent-list-length))))
 
 (defun clevercss-calculate-indentation ()
-  "Calculate Clevercss indentation for line at point."
+  "Calculate CleverCSS indentation for line at point."
   (setq clevercss-indent-list nil
 	clevercss-indent-list-length 1)
   (save-excursion
@@ -638,7 +619,7 @@ the cycling."
 	;; statement, e.g.
 	;;       ...
 	;;   # ...
-	;;   def ...
+	;;   body h1 ...
 	(when (and (> clevercss-indent-list-length 1)
 		   (clevercss-comment-line-p))
 	  (forward-line)
@@ -682,7 +663,7 @@ Repeat ARG times."
 
 ;;;###autoload
 (define-derived-mode clevercss-mode fundamental-mode "CleverCSS"
-  "Major mode for editing Clevercss programs.
+  "Major mode for editing CleverCSS programs.
 Blank lines separate paragraphs, comments start with `// '.
 
 The indentation width is controlled by `clevercss-indent', which
@@ -713,19 +694,12 @@ file.
   (set (make-local-variable 'add-log-current-defun-function)
        'clevercss-current-defun)
 
-  ;; (add-to-list 'hs-special-modes-alist
-  ;;              '(clevercss-mode "\\(?:procedure\\|function\\|class\\)" nil
-  ;;                            "#" clevercss-end-of-block nil))
-;;;   (set (make-local-variable 'hs-hide-all-non-comment-function)
-;;;        'clevercss-hs-hide-level-1)
   (set (make-local-variable 'beginning-of-defun-function)
-       'clevercss-beginning-of-defun)
-  (set (make-local-variable 'end-of-defun-function) 'clevercss-end-of-defun)
+       'clevercss-beginning-of-block)
+  (set (make-local-variable 'end-of-defun-function) 'clevercss-end-of-block)
   (add-hook 'which-func-functions 'clevercss-which-func nil t)
-  (setq imenu-create-index-function #'clevercss-imenu-create-index)
   (set (make-local-variable 'ispell-check-comments) 'exclusive)
-;;;   (set (make-local-variable 'eldoc-documentation-function)
-;;;        #'clevercss-eldoc-function)
+
   (unless font-lock-mode (font-lock-mode 1))
   (when clevercss-guess-indent (clevercss-guess-indent))
   )
