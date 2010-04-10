@@ -9,6 +9,6 @@ files.  You may add additional extensions by modifying
 `auto-mode-alist`.  For example, to load CleverCSS mode on files with
 the extension `foo` you would write the following in your .emacs file.
 
-    (add-to-list auto-mode-alist '("\\.ccss\\'" . clevercss-mode))
+    (add-to-list auto-mode-alist '("\\.foo\\'" . clevercss-mode))
 
 If you find bugs, patches are welcome.
