@@ -40,6 +40,7 @@
 ;; font-lock #
 ;; make sure font lock open blocks covers all css selectors
 ;; fix comments comment-start is messed up
+;; Add indent open-block support for "font->"
 
 ;;; Code:
 
@@ -132,8 +133,6 @@ are always indented in lines with preceding comments."
     (define-key map "\C-c\C-p" 'clevercss-previous-statement)
     (define-key map "\C-c\C-u" 'clevercss-beginning-of-block)
     (define-key map "\C-c\C-c" 'clevercss-compile-and-run)
-    (define-key map "\C-j" 'clevercss-newline-and-indent)
-    (define-key map "\C-cj" 'clevercss-delete-indentation)
     
     (easy-menu-define clevercss-menu map "Clevercss Mode menu"
       `("Clevercss"
@@ -179,7 +178,8 @@ are always indented in lines with preceding comments."
     (modify-syntax-entry ?_ "_" table)
 
     ;; exceptions
-    (modify-syntax-entry ?\n ">" table)
+    (modify-syntax-entry ?/ ". 124b" table)
+    (modify-syntax-entry ?\n "> b" table)
     table))
 
 ;;;###autoload
@@ -208,10 +208,9 @@ file.
        '(clevercss-font-lock-keywords))
   (interactive)
   (set (make-local-variable 'parse-sexp-lookup-properties) t)
-  (set (make-local-variable 'parse-sexp-ignore-comments) t)
   (set (make-local-variable 'comment-start) "// ")
-  (set (make-local-variable 'comment-padding) 0)
-  (set (make-local-variable 'comment-end) "")
+  (set (make-local-variable 'parse-sexp-ignore-comments) t)
+  
   (set (make-local-variable 'indent-line-function) #'clevercss-indent-line)
   (set (make-local-variable 'indent-region-function) #'clevercss-indent-region)
   (set (make-local-variable 'paragraph-start) "\\s-*$")
@@ -243,7 +242,30 @@ file.
   "Guess step for indentation of current buffer.
 Set `clevercss-indent' locally to the value guessed."
   (interactive)
-  4)
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (let (done indent)
+	(while (and (not done) (not (eobp)))
+	  (when (and (re-search-forward (rx ?: (0+ space)
+					    (or (syntax comment-start)
+						line-end))
+					nil 'move)
+		     (clevercss-open-block-statement-p))
+	    (save-excursion
+	      (clevercss-beginning-of-statement)
+	      (let ((initial (current-indentation)))
+		(if (zerop (clevercss-next-statement))
+		    (setq indent (- (current-indentation) initial)))
+		(if (and indent (>= indent 2) (<= indent 8)) ; sanity check
+		    (setq done t))))))
+	(when done
+	  (when (/= indent (default-value 'clevercss-indent))
+	    (set (make-local-variable 'clevercss-indent) indent)
+	    (unless (= tab-width clevercss-indent)
+	      (setq indent-tabs-mode nil)))
+	  indent)))))
 
 (defun clevercss-beginning-of-block (&optional arg)
   "Go to start of current block.
@@ -482,8 +504,9 @@ corresponding block opening (or nil)."
       ;; statement.
       (cond
        ((save-excursion (and (clevercss-previous-statement)
-			     (clevercss-open-block-statement-p t)))
-        (setq indent (+ clevercss-indent (current-indentation)))
+			     (clevercss-open-block-statement-p t)
+                             (setq indent (+ clevercss-indent
+                                             (current-indentation)))))
 	(push (cons indent initial) levels))
        ;; Only one possibility for comment line immediately following
        ;; another.
@@ -650,5 +673,15 @@ or a blank line indented to where it would close a block."
           (save-excursion
             (clevercss-previous-statement)
             (current-indentation)))))
+
+(defun clevercss-mark-block ()
+  "Mark the block around point.
+Uses `clevercss-beginning-of-block', `clevercss-end-of-block'."
+  (interactive)
+  (push-mark)
+  (clevercss-beginning-of-block)
+  (push-mark (point) nil t)
+  (clevercss-end-of-block)
+  (exchange-point-and-mark))
 
 ;;; clevercss-mode.el ends here
