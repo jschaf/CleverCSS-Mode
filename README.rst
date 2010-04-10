@@ -12,8 +12,8 @@ Installation
 - Put `clevercss.el` somewhere in your emacs load path.
 - Add these lines to your .emacs file:
 
-       (autoload 'clevercss-mode "clevercss nil t)
-       (add-to-list auto-mode-alist '("\\.pcss\\'" . clevercss-mode))
+    (autoload 'clevercss-mode "clevercss nil t)
+    (add-to-list auto-mode-alist '("\\.pcss\\'" . clevercss-mode))
  
 This mode assumes that CleverCSS files have the suffix `.pcss`.  You
 may use additional suffixes by adding them to `auto-mode-alist`.  For
