@@ -1,0 +1,56 @@
+@include "filename.ccs"         // joe
+
+bgcolor = #f0f0e4
+
+ul#comments, ol#comments:       // joe
+   background-color: $bgcolor
+
+   li:
+      background-color: $bgcolor
+      font-size: 1.2em
+
+foo = 1px
+body:
+   margin: $foo
+foo = 2px
+p:
+   margin: $foo
+
+foo = 1px
+bar = 1px
+foo = 2px
+bar ?= 2px
+
+ul, ol:
+    foo
+   li, p:
+     bar
+     strong, em:
+         baz
+      
+strong, em:
+    a &, #&:
+      bar
+      
+#main p:
+   font->
+      family: Verdana, sans-serif
+      size: 1.1pc
+      style: italic
+
+@define mymacro(arg1, arg2):
+    font-family: $arg1
+    p:
+        display: inline
+        color: $arg2
+
+body:
+    %mymacro("Verdana", blue)
+    font-size: 1.1em
+
+
+__END__
+
+body > blah {
+   font-family: Georgia, Verdana, sans-serif;
+}
