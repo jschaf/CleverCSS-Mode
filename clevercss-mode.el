@@ -49,25 +49,6 @@
   :group 'languages
   :prefix "clevercss-")
 
-(defcustom clevercss-indent 4
-  "*Amout of offset per level of indentation."
-  :type 'integer
-  :group 'clevercss)
-(put 'clevercss-indent 'safe-local-variable 'integerp)
-
-(defcustom clevercss-guess-indent t
-  "Non-nil means Clevercss mode guesses `clevercss-indent' for the buffer."
-  :type 'boolean
-  :group 'clevercss)
-
-(defcustom clevercss-honour-comment-indentation nil
-  "Non-nil means indent relative to preceding comment line.
-Only do this for comments where the leading comment character is
-followed by space.  This doesn't apply to comment lines, which
-are always indented in lines with preceding comments."
-  :type 'boolean
-  :group 'clevercss)
-
 
 ;;;; Font Lock
 
@@ -188,55 +169,63 @@ are always indented in lines with preceding comments."
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.ccss\\'" . clevercss-mode))
 
-;;;###autoload
-(define-derived-mode clevercss-mode fundamental-mode "CleverCSS"
-  "Major mode for editing Clevercss programs.
-Blank lines separate paragraphs, comments start with `// '.
 
-The indentation width is controlled by `clevercss-indent', which
-defaults to 4.  If `clevercss-guess-indent' is non-nil, then try to
-match the indentation of the file.
+
+;;;; Utility stuff
 
-Modules can hook in via `clevercss-mode-hook'.
+(defsubst clevercss-in-string/comment ()
+  "Return non-nil if point is in a Clevercss literal (a comment or string)."
+  ;; We don't need to save the match data.
+  (nth 8 (syntax-ppss)))
 
-Use `clevercss-version' to display the current version of this
-file.
+(defun clevercss-skip-comments/blanks (&optional backward)
+  "Skip comments and blank lines.
+BACKWARD non-nil means go backwards, otherwise go forwards.
+Backslash is treated as whitespace so that continued blank lines
+are skipped.  Doesn't move out of comments -- should be outside
+or at end of line."
+  (let ((arg (if backward
+		 ;; If we're in a comment (including on the trailing
+		 ;; newline), forward-comment doesn't move backwards out
+		 ;; of it.  Don't set the syntax table round this bit!
+		 (let ((syntax (syntax-ppss)))
+		   (if (nth 4 syntax)
+		       (goto-char (nth 8 syntax)))
+		   (- (point-max)))
+	       (point-max))))
+    (forward-comment arg)))
 
-\\{clevercss-mode-map} "
-  :group 'clevercss
-  (set (make-local-variable 'font-lock-defaults)
-       '(clevercss-font-lock-keywords))
-  (interactive)
-  (set (make-local-variable 'parse-sexp-lookup-properties) t)
-  (set (make-local-variable 'comment-start) "// ")
-  (set (make-local-variable 'parse-sexp-ignore-comments) t)
-  
-  (set (make-local-variable 'indent-line-function) #'clevercss-indent-line)
-  (set (make-local-variable 'indent-region-function) #'clevercss-indent-region)
-  (set (make-local-variable 'paragraph-start) "\\s-*$")
-  (set (make-local-variable 'fill-paragraph-function) 'clevercss-fill-paragraph)
-  (set (make-local-variable 'require-final-newline) mode-require-final-newline)
-  ;; FIXME
-  (set (make-local-variable 'which-func-functions) '(clevercss-which-function))
-  (set (make-local-variable 'add-log-current-defun-function)
-       'clevercss-current-defun)
+(defun clevercss-comment-line-p ()
+  "Return non-nil if and only if current line has only a comment."
+  (save-excursion
+    (end-of-line)
+    (when (eq 'comment (syntax-ppss-context (syntax-ppss)))
+      (back-to-indentation)
+      (looking-at (rx (or (syntax comment-start) line-end))))))
 
-  ;; (add-to-list 'hs-special-modes-alist
-  ;;              '(clevercss-mode "\\(?:procedure\\|function\\|class\\)" nil
-  ;;                            "#" clevercss-end-of-block nil))
-;;;   (set (make-local-variable 'hs-hide-all-non-comment-function)
-;;;        'clevercss-hs-hide-level-1)
-  (set (make-local-variable 'beginning-of-defun-function)
-       'clevercss-beginning-of-defun)
-  (set (make-local-variable 'end-of-defun-function) 'clevercss-end-of-defun)
-  (add-hook 'which-func-functions 'clevercss-which-func nil t)
-  (setq imenu-create-index-function #'clevercss-imenu-create-index)
-  (set (make-local-variable 'ispell-check-comments) 'exclusive)
-;;;   (set (make-local-variable 'eldoc-documentation-function)
-;;;        #'clevercss-eldoc-function)
-  (unless font-lock-mode (font-lock-mode 1))
-  (when clevercss-guess-indent (clevercss-guess-indent))
-  )
+(defun clevercss-blank-line-p ()
+  "Return non-nil if and only if current line is blank."
+  (save-excursion
+    (beginning-of-line)
+    (looking-at "\\s-*$")))
+
+(defun clevercss-open-block-statement-p (&optional bos)
+  "Return non-nil if statement at point opens a block.
+BOS non-nil means point is known to be at beginning of statement."
+  (save-excursion
+    (unless bos (clevercss-beginning-of-statement))
+    (end-of-line)
+    (clevercss-skip-comments/blanks t)
+    (looking-back (rx ":"))))
+
+
+;;;; Indentation
+
+(defcustom clevercss-indent 4
+  "*Amout of offset per level of indentation."
+  :type 'integer
+  :group 'clevercss)
+(put 'clevercss-indent 'safe-local-variable 'integerp)
 
 (defun clevercss-guess-indent ()
   "Guess step for indentation of current buffer.
@@ -266,6 +255,124 @@ Set `clevercss-indent' locally to the value guessed."
 	    (unless (= tab-width clevercss-indent)
 	      (setq indent-tabs-mode nil)))
 	  indent)))))
+
+(defcustom clevercss-honour-comment-indentation nil
+  "Non-nil means indent relative to preceding comment line.
+Only do this for comments where the leading comment character is
+followed by space.  This doesn't apply to comment lines, which
+are always indented in lines with preceding comments."
+  :type 'boolean
+  :group 'clevercss)
+
+(defcustom clevercss-guess-indent t
+  "Non-nil means Clevercss mode guesses `clevercss-indent' for the buffer."
+  :type 'boolean
+  :group 'clevercss)
+v
+;; Alist of possible indentations and start of statement they would
+;; close.  Used in indentation cycling (below).
+(defvar clevercss-indent-list nil
+  "Internal use.")
+;; Length of the above
+(defvar clevercss-indent-list-length nil
+  "Internal use.")
+;; Current index into the alist.
+(defvar clevercss-indent-index nil
+  "Internal use.")
+
+
+;;;; Movement
+
+(defun clevercss-beginning-of-statement ()
+  "Go to start of current statement.
+Accounts for continuation lines, multi-line strings, and
+multi-line bracketed expressions."
+  (back-to-indentation))
+
+(defun clevercss-skip-out (&optional forward syntax)
+  "Skip out of any nested brackets.
+Skip forward if FORWARD is non-nil, else backward.
+If SYNTAX is non-nil it is the state returned by `syntax-ppss' at point.
+Return non-nil if and only if skipping was done."
+  (let ((depth (syntax-ppss-depth (or syntax (syntax-ppss))))
+	(forward (if forward -1 1)))
+    (unless (zerop depth)
+      (if (> depth 0)
+	  ;; Skip forward out of nested brackets.
+	  (condition-case ()		; beware invalid syntax
+	      (progn (backward-up-list (* forward depth)) t)
+	    (error nil))
+	;; Invalid syntax (too many closed brackets).
+	;; Skip out of as many as possible.
+	(let (done)
+	  (while (condition-case ()
+		     (progn (backward-up-list forward)
+			    (setq done t))
+		   (error nil)))
+	  done)))))
+
+(defun clevercss-end-of-statement ()
+  "Go to the end of the current statement and return point.
+Usually this is the start of the next line, but if this is a
+multi-line statement we need to skip over the continuation lines.
+On a comment line, go to end of line."
+  (end-of-line)
+  (while (let (comment)
+	   ;; Move past any enclosing strings and sexps, or stop if
+	   ;; we're in a comment.
+	   (while (let ((s (syntax-ppss)))
+		    (cond ((eq 'comment (syntax-ppss-context s))
+			   (setq comment t)
+			   nil)
+			  ((eq 'string (syntax-ppss-context s))
+			   ;; Go to start of string and skip it.
+                           (let ((pos (point)))
+                             (goto-char (nth 8 s))
+                             (condition-case () ; beware invalid syntax
+                                 (progn (forward-sexp) t)
+                               ;; If there's a mismatched string, make sure
+                               ;; we still overall move *forward*.
+                               (error (goto-char pos) (end-of-line)))))
+			  ((clevercss-skip-out t s))))
+	     (end-of-line))
+	   (unless comment
+	     (eq ?\\ (char-before))))	; Line continued?
+    (end-of-line 2))			; Try next line.
+  (point))
+
+(defun clevercss-previous-statement (&optional count)
+  "Go to start of previous statement.
+With argument COUNT, do it COUNT times.  Stop at beginning of buffer.
+nReturn count of statements left to move."
+  (interactive "p")
+  (unless count (setq count 1))
+  (if (< count 0)
+      (clevercss-next-statement (- count))
+    (clevercss-beginning-of-statement)
+    (while (and (> count 0) (not (bobp)))
+      (clevercss-skip-comments/blanks t)
+      (clevercss-beginning-of-statement)
+      (unless (bobp) (setq count (1- count))))
+    count))
+
+(defun clevercss-next-statement (&optional count)
+  "Go to start of next statement.
+With argument COUNT, do it COUNT times.  Stop at end of buffer.
+Return count of statements left to move."
+  (interactive "p")
+  (unless count (setq count 1))
+  (if (< count 0)
+      (clevercss-previous-statement (- count))
+    (beginning-of-line)
+    (let (bogus)
+      (while (and (> count 0) (not (eobp)) (not bogus))
+	(clevercss-end-of-statement)
+	(clevercss-skip-comments/blanks)
+	(if (eq 'string (syntax-ppss-context (syntax-ppss)))
+	    (setq bogus t)
+	  (unless (eobp)
+	    (setq count (1- count))))))
+    count))
 
 (defun clevercss-beginning-of-block (&optional arg)
   "Go to start of current block.
@@ -336,159 +443,80 @@ don't move and return nil.  Otherwise return t."
       (setq arg (1- arg)))
     (zerop arg)))
 
-(defun clevercss-comment-line-p ()
-  "Return non-nil if and only if current line has only a comment."
+(defun clevercss-first-word ()
+  "Return first word (actually symbol) on the line."
   (save-excursion
-    (end-of-line)
-    (when (eq 'comment (syntax-ppss-context (syntax-ppss)))
-      (back-to-indentation)
-      (looking-at (rx (or (syntax comment-start) line-end))))))
+    (back-to-indentation)
+    (current-word t)))
 
-(defun clevercss-blank-line-p ()
-  "Return non-nil if and only if current line is blank."
+(defun clevercss-initial-text ()
+  "Text of line following indentation and ignoring any trailing comment."
   (save-excursion
-    (beginning-of-line)
-    (looking-at "\\s-*$")))
+    (buffer-substring (progn
+			(back-to-indentation)
+			(point))
+		      (progn
+			(end-of-line)
+			(forward-comment -1)
+			(point)))))
 
-(defun clevercss-skip-comments/blanks (&optional backward)
-  "Skip comments and blank lines.
-BACKWARD non-nil means go backwards, otherwise go forwards.
-Backslash is treated as whitespace so that continued blank lines
-are skipped.  Doesn't move out of comments -- should be outside
-or at end of line."
-  (let ((arg (if backward
-		 ;; If we're in a comment (including on the trailing
-		 ;; newline), forward-comment doesn't move backwards out
-		 ;; of it.  Don't set the syntax table round this bit!
-		 (let ((syntax (syntax-ppss)))
-		   (if (nth 4 syntax)
-		       (goto-char (nth 8 syntax)))
-		   (- (point-max)))
-	       (point-max))))
-    (forward-comment arg)))
+(defun clevercss-block-end-p ()
+  "Non-nil if this is a line in a statement closing a block,
+or a blank line indented to where it would close a block."
+  (and (not (clevercss-comment-line-p))
+       (< (current-indentation)
+          (save-excursion
+            (clevercss-previous-statement)
+            (current-indentation)))))
 
-(defun clevercss-beginning-of-statement ()
-  "Go to start of current statement.
-Accounts for continuation lines, multi-line strings, and
-multi-line bracketed expressions."
-  (back-to-indentation))
+(defun clevercss-mark-block ()
+  "Mark the block around point.
+Uses `clevercss-beginning-of-block', `clevercss-end-of-block'."
+  (interactive)
+  (push-mark)
+  (clevercss-beginning-of-block)
+  (push-mark (point) nil t)
+  (clevercss-end-of-block)
+  (exchange-point-and-mark))
 
-(defun clevercss-open-block-statement-p (&optional bos)
-  "Return non-nil if statement at point opens a block.
-BOS non-nil means point is known to be at beginning of statement."
-  (save-excursion
-    (unless bos (clevercss-beginning-of-statement))
-    (end-of-line)
-    (clevercss-skip-comments/blanks t)
-    (looking-back (rx ":"))))
+(defun clevercss-shift-left (start end &optional count)
+  "Shift lines in region COUNT (the prefix arg) columns to the left.
+COUNT defaults to `clevercss-indent'.  If region isn't active, just shift
+current line.  The region shifted includes the lines in which START and
+END lie.  It is an error if any lines in the region are indented less than
+COUNT columns."
+  (interactive
+   (if mark-active
+       (list (region-beginning) (region-end) current-prefix-arg)
+     (list (line-beginning-position) (line-end-position) current-prefix-arg)))
+  (if count
+      (setq count (prefix-numeric-value count))
+    (setq count clevercss-indent))
+  (when (> count 0)
+    (save-excursion
+      (goto-char start)
+      (while (< (point) end)
+	(if (and (< (current-indentation) count)
+		 (not (looking-at "[ \t]*$")))
+	    (error "Can't shift all lines enough"))
+	(forward-line))
+      (indent-rigidly start end (- count)))))
 
-(defun clevercss-next-statement (&optional count)
-  "Go to start of next statement.
-With argument COUNT, do it COUNT times.  Stop at end of buffer.
-Return count of statements left to move."
-  (interactive "p")
-  (unless count (setq count 1))
-  (if (< count 0)
-      (clevercss-previous-statement (- count))
-    (beginning-of-line)
-    (let (bogus)
-      (while (and (> count 0) (not (eobp)) (not bogus))
-	(clevercss-end-of-statement)
-	(clevercss-skip-comments/blanks)
-	(if (eq 'string (syntax-ppss-context (syntax-ppss)))
-	    (setq bogus t)
-	  (unless (eobp)
-	    (setq count (1- count))))))
-    count))
+(add-to-list 'debug-ignored-errors "^Can't shift all lines enough")
 
-(defun clevercss-beginning-of-string ()
-  "Go to beginning of string around point.
-Do nothing if not in string."
-  (let ((state (syntax-ppss)))
-    (when (eq 'string (syntax-ppss-context state))
-      (goto-char (nth 8 state)))))
-
-(defun clevercss-end-of-statement ()
-  "Go to the end of the current statement and return point.
-Usually this is the start of the next line, but if this is a
-multi-line statement we need to skip over the continuation lines.
-On a comment line, go to end of line."
-  (end-of-line)
-  (while (let (comment)
-	   ;; Move past any enclosing strings and sexps, or stop if
-	   ;; we're in a comment.
-	   (while (let ((s (syntax-ppss)))
-		    (cond ((eq 'comment (syntax-ppss-context s))
-			   (setq comment t)
-			   nil)
-			  ((eq 'string (syntax-ppss-context s))
-			   ;; Go to start of string and skip it.
-                           (let ((pos (point)))
-                             (goto-char (nth 8 s))
-                             (condition-case () ; beware invalid syntax
-                                 (progn (forward-sexp) t)
-                               ;; If there's a mismatched string, make sure
-                               ;; we still overall move *forward*.
-                               (error (goto-char pos) (end-of-line)))))
-			  ((clevercss-skip-out t s))))
-	     (end-of-line))
-	   (unless comment
-	     (eq ?\\ (char-before))))	; Line continued?
-    (end-of-line 2))			; Try next line.
-  (point))
-
-(defun clevercss-skip-out (&optional forward syntax)
-  "Skip out of any nested brackets.
-Skip forward if FORWARD is non-nil, else backward.
-If SYNTAX is non-nil it is the state returned by `syntax-ppss' at point.
-Return non-nil if and only if skipping was done."
-  (let ((depth (syntax-ppss-depth (or syntax (syntax-ppss))))
-	(forward (if forward -1 1)))
-    (unless (zerop depth)
-      (if (> depth 0)
-	  ;; Skip forward out of nested brackets.
-	  (condition-case ()		; beware invalid syntax
-	      (progn (backward-up-list (* forward depth)) t)
-	    (error nil))
-	;; Invalid syntax (too many closed brackets).
-	;; Skip out of as many as possible.
-	(let (done)
-	  (while (condition-case ()
-		     (progn (backward-up-list forward)
-			    (setq done t))
-		   (error nil)))
-	  done)))))
-
-(defun clevercss-backspace (arg)
-  "Maybe delete a level of indentation on the current line.
-Do so if point is at the end of the line's indentation outside
-strings and comments.
-Otherwise just call `backward-delete-char-untabify'.
-Repeat ARG times."
-  (interactive "*p")
-  (if (or (/= (current-indentation) (current-column))
-	  (bolp)
-	  (clevercss-in-string/comment))
-      (backward-delete-char-untabify arg)
-    ;; Look for the largest valid indentation which is smaller than
-    ;; the current indentation.
-    (let ((indent 0)
-	  (ci (current-indentation))
-	  (indents (clevercss-indentation-levels))
-	  initial)
-      (dolist (x indents)
-	(if (< (car x) ci)
-	    (setq indent (max indent (car x)))))
-      (setq initial (cdr (assq indent indents)))
-      (if (> (length initial) 0)
-	  (message "Closes %s" initial))
-      (delete-horizontal-space)
-      (indent-to indent))))
-
-(defsubst clevercss-in-string/comment ()
-  "Return non-nil if point is in a Clevercss literal (a comment or string)."
-  ;; We don't need to save the match data.
-  (nth 8 (syntax-ppss)))
+(defun clevercss-shift-right (start end &optional count)
+  "Shift lines in region COUNT (the prefix arg) columns to the right.
+COUNT defaults to `clevercss-indent'.  If region isn't active, just shift
+current line.  The region shifted includes the lines in which START and
+END lie."
+  (interactive
+   (if mark-active
+       (list (region-beginning) (region-end) current-prefix-arg)
+     (list (line-beginning-position) (line-end-position) current-prefix-arg)))
+  (if count
+      (setq count (prefix-numeric-value count))
+    (setq count clevercss-indent))
+  (indent-rigidly start end count))
 
 (defun clevercss-indentation-levels ()
   "Return a list of possible indentations for this line.
@@ -528,7 +556,6 @@ corresponding block opening (or nil)."
       (prog1 (or levels (setq levels '((0 . ""))))
 	(setq clevercss-indent-list levels
 	      clevercss-indent-list-length (length clevercss-indent-list))))))
-
 
 ;; This is basically what `clevercss-indent-line' would be if we didn't
 ;; do the cycling.
@@ -622,66 +649,87 @@ the cycling."
 			   (list elt))))))
 	(caar (last clevercss-indent-list)))))))
 
-;; Alist of possible indentations and start of statement they would
-;; close.  Used in indentation cycling (below).
-(defvar clevercss-indent-list nil
-  "Internal use.")
-;; Length of the above
-(defvar clevercss-indent-list-length nil
-  "Internal use.")
-;; Current index into the alist.
-(defvar clevercss-indent-index nil
-  "Internal use.")
+;;;; `Electric' commands.
 
-(defun clevercss-previous-statement (&optional count)
-  "Go to start of previous statement.
-With argument COUNT, do it COUNT times.  Stop at beginning of buffer.
-nReturn count of statements left to move."
-  (interactive "p")
-  (unless count (setq count 1))
-  (if (< count 0)
-      (clevercss-next-statement (- count))
-    (clevercss-beginning-of-statement)
-    (while (and (> count 0) (not (bobp)))
-      (clevercss-skip-comments/blanks t)
-      (clevercss-beginning-of-statement)
-      (unless (bobp) (setq count (1- count))))
-    count))
+(defun clevercss-backspace (arg)
+  "Maybe delete a level of indentation on the current line.
+Do so if point is at the end of the line's indentation outside
+strings and comments.
+Otherwise just call `backward-delete-char-untabify'.
+Repeat ARG times."
+  (interactive "*p")
+  (if (or (/= (current-indentation) (current-column))
+	  (bolp)
+	  (clevercss-in-string/comment))
+      (backward-delete-char-untabify arg)
+    ;; Look for the largest valid indentation which is smaller than
+    ;; the current indentation.
+    (let ((indent 0)
+	  (ci (current-indentation))
+	  (indents (clevercss-indentation-levels))
+	  initial)
+      (dolist (x indents)
+	(if (< (car x) ci)
+	    (setq indent (max indent (car x)))))
+      (setq initial (cdr (assq indent indents)))
+      (if (> (length initial) 0)
+	  (message "Closes %s" initial))
+      (delete-horizontal-space)
+      (indent-to indent))))
 
-(defun clevercss-first-word ()
-  "Return first word (actually symbol) on the line."
-  (save-excursion
-    (back-to-indentation)
-    (current-word t)))
+
+;;;; Modes
 
-(defun clevercss-initial-text ()
-  "Text of line following indentation and ignoring any trailing comment."
-  (save-excursion
-    (buffer-substring (progn
-			(back-to-indentation)
-			(point))
-		      (progn
-			(end-of-line)
-			(forward-comment -1)
-			(point)))))
+;;;###autoload
+(define-derived-mode clevercss-mode fundamental-mode "CleverCSS"
+  "Major mode for editing Clevercss programs.
+Blank lines separate paragraphs, comments start with `// '.
 
-(defun clevercss-block-end-p ()
-  "Non-nil if this is a line in a statement closing a block,
-or a blank line indented to where it would close a block."
-  (and (not (clevercss-comment-line-p))
-       (< (current-indentation)
-          (save-excursion
-            (clevercss-previous-statement)
-            (current-indentation)))))
+The indentation width is controlled by `clevercss-indent', which
+defaults to 4.  If `clevercss-guess-indent' is non-nil, then try to
+match the indentation of the file.
 
-(defun clevercss-mark-block ()
-  "Mark the block around point.
-Uses `clevercss-beginning-of-block', `clevercss-end-of-block'."
+Modules can hook in via `clevercss-mode-hook'.
+
+Use `clevercss-version' to display the current version of this
+file.
+
+\\{clevercss-mode-map} "
+  :group 'clevercss
+  (set (make-local-variable 'font-lock-defaults)
+       '(clevercss-font-lock-keywords))
   (interactive)
-  (push-mark)
-  (clevercss-beginning-of-block)
-  (push-mark (point) nil t)
-  (clevercss-end-of-block)
-  (exchange-point-and-mark))
+  (set (make-local-variable 'parse-sexp-lookup-properties) t)
+  (set (make-local-variable 'comment-start) "// ")
+  (set (make-local-variable 'parse-sexp-ignore-comments) t)
+  
+  (set (make-local-variable 'indent-line-function) #'clevercss-indent-line)
+  (set (make-local-variable 'indent-region-function) #'clevercss-indent-region)
+  (set (make-local-variable 'paragraph-start) "\\s-*$")
+  (set (make-local-variable 'fill-paragraph-function) 'clevercss-fill-paragraph)
+  (set (make-local-variable 'require-final-newline) mode-require-final-newline)
+  ;; FIXME
+  (set (make-local-variable 'which-func-functions) '(clevercss-which-function))
+  (set (make-local-variable 'add-log-current-defun-function)
+       'clevercss-current-defun)
+
+  ;; (add-to-list 'hs-special-modes-alist
+  ;;              '(clevercss-mode "\\(?:procedure\\|function\\|class\\)" nil
+  ;;                            "#" clevercss-end-of-block nil))
+;;;   (set (make-local-variable 'hs-hide-all-non-comment-function)
+;;;        'clevercss-hs-hide-level-1)
+  (set (make-local-variable 'beginning-of-defun-function)
+       'clevercss-beginning-of-defun)
+  (set (make-local-variable 'end-of-defun-function) 'clevercss-end-of-defun)
+  (add-hook 'which-func-functions 'clevercss-which-func nil t)
+  (setq imenu-create-index-function #'clevercss-imenu-create-index)
+  (set (make-local-variable 'ispell-check-comments) 'exclusive)
+;;;   (set (make-local-variable 'eldoc-documentation-function)
+;;;        #'clevercss-eldoc-function)
+  (unless font-lock-mode (font-lock-mode 1))
+  (when clevercss-guess-indent (clevercss-guess-indent))
+  )
+
+(provide 'clevercss-mode)
 
 ;;; clevercss-mode.el ends here
