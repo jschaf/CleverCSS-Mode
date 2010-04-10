@@ -33,13 +33,21 @@
 
 ;;; Installation:
 
-;; To install, just drop this file into a directory on your load-path.
+;; - Put `clevercss.el' somewhere in your emacs load path
+;; - Add these lines to your .emacs file:
+;;   (autoload 'clevercss-mode "clevercss nil t)
+;;   (add-to-list auto-mode-alist '("\\.pcss\\'" . clevercss-mode))
+;;  
 ;; This mode assumes that CleverCSS files have the suffix ".pcss".
 ;; You may use additional suffixes by adding them to
 ;; `auto-mode-alist'.  For example, to add the suffix ".ccss" you
-;; would write the following in your .emacs file.
-;;
+;; would write the following in your .emacs file:
+;; 
 ;; (add-to-list auto-mode-alist '("\\.ccss\\'" . clevercss-mode))
+;;
+;; To customize how it works:
+;;  M-x customize-group RET clevercss-mode RET
+;;
 
 ;;; Bug Reporting:
 
