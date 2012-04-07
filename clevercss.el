@@ -1,4 +1,4 @@
-;;; clevercss-mode.el --- A major mode for editing CleverCSS files
+;;; clevercss.el --- A major mode for editing CleverCSS files
 
 ;; Copyright (C) 2010 Joe Schafer
 ;; Author: Joe Schafer (joesmoe10@gmail.com)
@@ -728,6 +728,6 @@ file.
   (when clevercss-guess-indent (clevercss-guess-indent))
   )
 
-(provide 'clevercss-mode)
+(provide 'clevercss)
 
-;;; clevercss-mode.el ends here
+;;; clevercss.el ends here
