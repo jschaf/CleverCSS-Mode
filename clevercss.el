@@ -703,7 +703,6 @@ file.
   :group 'clevercss
   (set (make-local-variable 'font-lock-defaults)
        '(clevercss-font-lock-keywords))
-  (interactive)
   (set (make-local-variable 'parse-sexp-lookup-properties) t)
   (set (make-local-variable 'comment-start) "// ")
   (set (make-local-variable 'parse-sexp-ignore-comments) t)
